@@ -1,4 +1,6 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace FrequencyTest
@@ -8,7 +10,8 @@ namespace FrequencyTest
         private static readonly int subsequenceLength = 3;
         static async Task Main(string[] args)
         {
-            var startTime = DateTime.Now;
+            var timer = new Stopwatch();
+            timer.Start();
             string path = string.Empty;
             if (args.Length == 0)
             {
@@ -22,15 +25,11 @@ namespace FrequencyTest
             text = text.Replace(Environment.NewLine, " ").ToLower();
             if (text.Length >= subsequenceLength)
             {
-                string pattern = "[^a-zA-Zа-яА-Я ]";
-                string clearText = Regex.Replace(text, pattern, string.Empty);
-                string[] wordsArray = clearText.Split(' ');
-                var words = ToConcurrentDictFromArray(wordsArray);
+                Dictionary<string,int> words = GetWordsFromText(text);
                 var subsequenceDict = new ConcurrentDictionary<string, int>();
                 CountSubseqInWords(words, subsequenceDict);
-                var seqCount = subsequenceDict.Count;
-                int toTake = 10;
-                var result = subsequenceDict.OrderByDescending(n => n.Value).Take(Math.Min(toTake, seqCount));
+                int toTake = Math.Min(subsequenceDict.Count, 10);
+                var result = subsequenceDict.OrderByDescending(n => n.Value).Take(toTake);
                 foreach (var seq in result)
                 {
                     Console.WriteLine(seq.Key + " " + seq.Value);
@@ -40,22 +39,55 @@ namespace FrequencyTest
             {
                 Console.WriteLine("Длина текста меньше искомой длины");
             }
-            Console.WriteLine("Время работы программы: " + (DateTime.Now - startTime).TotalMilliseconds);
+            timer.Stop();
+            Console.WriteLine("Время работы программы: " + timer.ElapsedMilliseconds);
         }
 
+        public static Dictionary<string,int> GetWordsFromText(string text)
+        {
+            var sb = new StringBuilder();
+            var words = new Dictionary<string,int>();
+            foreach (char ch in text)
+            {
+                if (Char.IsLetter(ch))
+                {
+                    sb.Append(ch);
+                }
+                else if (ch == ' ')
+                {
+                    AddOrUpdateWithSb();
+                    sb.Clear();
+                }
+            }
+            AddOrUpdateWithSb();
+            return words;
 
-        public static void CountSubseqInWords(ConcurrentDictionary<string, int> words, ConcurrentDictionary<string, int> subsequence)
+            void AddOrUpdateWithSb()
+            {
+                if (sb.Length >= subsequenceLength)
+                {
+                    var str = sb.ToString();
+                    if (words.ContainsKey(str))
+                    {
+                        words[str]++;
+                    }
+                    else
+                    {
+                        words.Add(str, 1);
+                    }
+                }
+            }
+        }
+
+        public static void CountSubseqInWords(Dictionary<string, int> words, ConcurrentDictionary<string, int> subsequence)
         {
             Parallel.ForEach(words, word =>
             {
-                if (word.Key.Length >= subsequenceLength)
+                for (int i = 0; i < word.Key.Length - subsequenceLength + 1; i++)
                 {
-                    for (int i = 0; i < word.Key.Length - subsequenceLength + 1; i++)
-                    {
-                        var subseq = word.Key[i..(i + subsequenceLength)];
-                        int count = word.Value;
-                        subsequence.AddOrUpdate(subseq, count, (key, existingCount) => existingCount + count);
-                    }
+                    var subseq = word.Key[i..(i + subsequenceLength)];
+                    int count = word.Value;
+                    subsequence.AddOrUpdate(subseq, count, (key, existingCount) => existingCount + count);
                 }
             });
         }
@@ -75,16 +107,6 @@ namespace FrequencyTest
                 Console.WriteLine(ex.Message);
             }
             return string.Empty;
-        }
-
-        public static ConcurrentDictionary<string,int> ToConcurrentDictFromArray(string[] array)
-        {
-            var dict = new ConcurrentDictionary<string, int>();
-            Parallel.ForEach(array, word =>
-            {
-                dict.AddOrUpdate(word, 1, (key, existingCount) => ++existingCount);
-            });
-            return dict;
         }
     }
 }
